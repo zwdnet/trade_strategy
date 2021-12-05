@@ -15,18 +15,25 @@ import datetime
 
 
 # 策略类
+
 class PMStrategy(ts.Strategy):
+    """
+    N,交易股票只数
+    period, 调仓周期
+    bprint, 是否输出交易过程
+    """
     params = (("N", 10), 
+              ("period", 20),
               ("bprint", False),)
     def __init__(self, refresh = False):
         super(PMStrategy, self).__init__()
         datafile = "./datas/cumreturn.csv"
         self.cumreturns = pd.read_csv(datafile)
-        print(self.cumreturns.head())
         self.cumreturns.日期 = pd.to_datetime(self.cumreturns.日期)
         self.cumreturns.set_index("日期", drop = True, inplace = True)
         self.bIn = False
         self.bstart = True
+        self.days = 0 # 记录交易天数
         self.bookmarker = pd.DataFrame()
         
     # 数据转换
@@ -45,6 +52,7 @@ class PMStrategy(ts.Strategy):
         s_list = self.transform(self.datas[0].datetime.date(0))
         if self.bIn == False:
             cash = self.broker.get_cash()/self.p.N
+            # 如果是第一次交易，直接使用排序结果
             if self.bstart:
                 self.bookmarker["股票代码"] = s_list
                 self.bookmarker["买入价"] = 0.0
@@ -62,7 +70,8 @@ class PMStrategy(ts.Strategy):
                 if self.is_lastday(data = data):
                     self.close(data = data)
             self.bIn = True
-        else:
+        # 到达交易天数
+        elif self.days == self.p.period:
             self.bookmarker["现价"] = 0.0
             self.bookmarker["累积收益率"] = 0.0
             for code in self.bookmarker.股票代码.values:
@@ -72,7 +81,6 @@ class PMStrategy(ts.Strategy):
             
             # 找出累积收益率最低的股票，卖出
             min_code = self.bookmarker[self.bookmarker.累积收益率 == self.bookmarker.min().累积收益率].股票代码.values[0]
-            print("测试a", self.bookmarker, min_code)
             min_data = self.getdatabyname(min_code)
             self.close(data = min_data)
             self.bookmarker = self.bookmarker[self.bookmarker.股票代码 != min_code]
@@ -80,7 +88,9 @@ class PMStrategy(ts.Strategy):
             self.bIn = False
             # 放入累积收益最高的股票
             self.bookmarker = self.bookmarker.append({"股票代码":s_list[0], "买入价":0.0, "现价":0.0, "累积收益率":0.0}, ignore_index = True)
-            print("测试b", self.bookmarker, min_code)
+            self.days = 0
+        else:
+            self.days += 1
         
     def is_lastday(self,data): 
         try: 
@@ -227,7 +237,7 @@ def pm():
     codes = init_data(start_date = start_date, end_date = end_date, retry = False)
     backtest = ts.BackTest(
         strategy = PMStrategy, 
-        codes = codes[:20], 
+        codes = codes, 
         bk_code = "000300",
         start_date = start_date, 
         end_date = end_date, 
@@ -238,10 +248,10 @@ def pm():
         adjust = "hfq", 
         period = "daily", 
         refresh = False, 
-        bprint = True, 
-        bdraw = False)
+        bprint = False, 
+        bdraw = True)
     results = backtest.run()
-    print("回测结果", results)
+    print("回测结果", results[:-2])
     
     
 # 测试日期索引
