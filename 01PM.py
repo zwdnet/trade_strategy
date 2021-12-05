@@ -15,7 +15,6 @@ import datetime
 
 
 # 策略类
-
 class PMStrategy(ts.Strategy):
     """
     N,交易股票只数
@@ -100,9 +99,6 @@ class PMStrategy(ts.Strategy):
         except: 
             print("发生其它错误")
             return False
-        
-        
-        # print(self.cumreturns.loc[self.datas[0].datetime])
         
         
 # 形成股票池
@@ -249,7 +245,7 @@ def pm():
         period = "daily", 
         refresh = False, 
         bprint = False, 
-        bdraw = True)
+        bdraw = False)
     results = backtest.run()
     print("回测结果", results[:-2])
     
