@@ -30,6 +30,7 @@ def init_display():
     
     
 # 获取数据
+@run.change_dir
 def get_data(code, start_date = "20000101", end_date = "20201231", adjust = "qfq", period = "daily", refresh = False):
     def download_data(code):
         try:
@@ -176,7 +177,7 @@ class BackTest():
         for code in self._codes:
             data = get_data(code = code, 
         start_date = self._start_date, 
-        end_date = self._end_date,
+        end_date = self._end_date,adjust = self._adjust, period = self._period, 
         refresh = self._refresh)
             data = self._datatransform(data, code)
             self._cerebro.adddata(data, name = code)
@@ -237,8 +238,8 @@ class BackTest():
         pnl = end_value - self._start_cash
 
         testresults["初始资金"] = self._start_cash
-        testresults["回测开始日期"] = bk_ret.index[0].date()
-        testresults["回测结束日期"] = bk_ret.index[-1].date()
+        testresults["回测开始日期"] = self._start_date
+        testresults["回测结束日期"] = self._end_date
         testresults["期末净值"] = end_value
         testresults["净收益"] = pnl
         testresults["收益/成本"] = pnl/testresults["交易成本"]
@@ -335,6 +336,7 @@ class BackTest():
     
         # 生成回测报告
         if self._bdraw:
+        # if True:
             self._make_report(returns = returns, bk_ret = bk_ret, rf = rf)
         
     # 回测报告

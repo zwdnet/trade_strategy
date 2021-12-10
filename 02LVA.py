@@ -1,5 +1,5 @@
 # 实现经典量化策略
-# 低波动异常策略 
+# 低波动异常策略 Low-Volatility Anomaly
 # 参考 ZuraKakushadze,JuanAndrésSerur. 151 Trading Strategies.
 
 
@@ -15,7 +15,7 @@ import datetime
 
 
 # 策略类
-class PMStrategy(ts.Strategy):
+class LVAStrategy(ts.Strategy):
     """
     N,交易股票只数
     period, 调仓周期
@@ -25,11 +25,11 @@ class PMStrategy(ts.Strategy):
               ("period", 20),
               ("bprint", False),)
     def __init__(self, refresh = False):
-        super(PMStrategy, self).__init__()
-        datafile = "./datas/cumreturn.csv"
-        self.cumreturns = pd.read_csv(datafile)
-        self.cumreturns.日期 = pd.to_datetime(self.cumreturns.日期)
-        self.cumreturns.set_index("日期", drop = True, inplace = True)
+        super(LVAStrategy, self).__init__()
+        datafile = "./datas/retvar.csv"
+        self.retvar = pd.read_csv(datafile)
+        self.retvar.日期 = pd.to_datetime(self.retvar.日期)
+        self.retvar.set_index("日期", drop = True, inplace = True)
         self.bIn = False
         self.bstart = True
         self.days = 0 # 记录交易天数
@@ -37,10 +37,10 @@ class PMStrategy(ts.Strategy):
         
     # 数据转换
     def transform(self, date):
-        stock_list = self.cumreturns.loc[str(date)]
+        stock_list = self.retvar.loc[str(date)]
         s = stock_list.values[0][1:-1]
         s = s.replace("'", "")
-        s_list = s.split()
+        s_list = s.split()[:19:2]
         return s_list
         
     # 交易数量取整
@@ -78,14 +78,14 @@ class PMStrategy(ts.Strategy):
                 self.bookmarker.现价[self.bookmarker.股票代码 == code] = data.close[0]
                 self.bookmarker.累积收益率[self.bookmarker.股票代码 == code] = data.close[0]/self.bookmarker[self.bookmarker.股票代码 == code].买入价 - 1.0
             
-            # 找出累积收益率最低的股票，卖出
+            # 找出累积收益率最低的股票的股票，卖出
             min_code = self.bookmarker[self.bookmarker.累积收益率 == self.bookmarker.min().累积收益率].股票代码.values[0]
             min_data = self.getdatabyname(min_code)
             self.close(data = min_data)
             self.bookmarker = self.bookmarker[self.bookmarker.股票代码 != min_code]
             self.p.N += 1
             self.bIn = False
-            # 放入累积收益最高的股票
+            # 放入收益方差最低的股票
             self.bookmarker = self.bookmarker.append({"股票代码":s_list[0], "买入价":0.0, "现价":0.0, "累积收益率":0.0}, ignore_index = True)
             self.days = 0
         else:
@@ -133,9 +133,9 @@ def select(data, highprice = sys.float_info.max, lowprice = 0.0):
     return codes
     
     
-# 下载数据并形成累积收益率
+# 下载数据并计算收益方差
 def make_data(codes, start_date, end_date, refresh = False):
-    cumret = pd.Series()
+    rets = pd.Series()
     n = len(codes)
     i = 0
     start = np.datetime64(datetime.datetime.strptime(start_date, "%Y%m%d"))
@@ -156,58 +156,89 @@ def make_data(codes, start_date, end_date, refresh = False):
         end_gap = gap_days(end, date[-1])
         if start_gap == 0 and end_gap == 0:
             # 生成累积收益率数据
-            stock_data["累积收益率"] = stock_data["收盘"]/stock_data["收盘"][0] - 1.0
-            cumret[code] = stock_data["累积收益率"]
-    return cumret
+            stock_data["每日收益"] = stock_data["收盘"] - stock_data["收盘"].shift(1)
+            rets[code] = stock_data["每日收益"]
+    return rets
     
     
-# 计算每日累积收益率
+# 计算每日收益率序列方差
 @run.change_dir
-def get_top10(cumret, retry = False):
-    datafile = "./datas/cumreturn.csv"
+def get_top10(rets, retry = False):
+    datafile = "./datas/retvar.csv"
     if os.path.exists(datafile) and retry == False:
         results = pd.read_csv(datafile)
         results.日期 = pd.to_datetime(results.日期)
         results.set_index("日期", drop = True, inplace = True)
         return results
-    cumreturn = pd.DataFrame()
+    returns = pd.DataFrame()
     temp = pd.Series()
-    n = len(cumret)
-    m = len(cumret[0].index)
+    n = len(rets)
+    m = len(rets[0].index)
     j = 0
-    print(m, n)
+    # print(m, n)
     # input("按任意键继续")
-    for date in cumret[0].index:
+    for date in rets[0].index:
         # print(date)
         i = 0
-        for stock in cumret:
+        temp["日期"] = date
+        # temp["股票代码"] = rets.index[i]
+        temp_data = pd.DataFrame()
+        temp_code = []
+        temp_var = []
+        for stock in rets:
             j += 1
-            print("计算累积收益率进度:", j/(m*n))
-            temp["日期"] = date
-            temp["股票代码"] = cumret.index[i]
-            ret = stock[stock.index == date].values
-            if len(ret) == 0:
-                temp["累积收益率"] = np.NaN
+            print("计算收益方差序列进度:", j/(m*n))
+            
+            ret = stock[stock.index < date].values
+            if len(ret) == 0 or len(ret) == 1:
+                temp_var.append(0.0)
             else:
-                temp["累积收益率"] = stock[stock.index == date].values[0]
-            # print(temp["累积收益率"])
-            cumreturn = cumreturn.append(temp, ignore_index = True)
+                temp_var.append(np.var(ret[1:]))
+            temp_code.append(rets.index[i])
             i += 1
-    # print(cumreturn)
-    results = pd.DataFrame()
-    top10 = []
-    for date in cumret[0].index:
-        temp = cumreturn[cumreturn.日期 == date]
-        temp = temp.sort_values(by = "累积收益率", ascending = False)
-        top10.append(temp.loc[:, ["股票代码"]].values[:10].T[0])
-        # results.append(temp)
-        # results = results.append({"日期": date, "累积收益率": temp}, ignore_index = True)
-    results["日期"] = cumret[0].index
-    results["累积收益率"] = top10
-    results.set_index("日期", drop = True, inplace = True)
-    results.to_csv(datafile)
-    print(results.info(), results.head())
-    return results
+        # temp["收益方差"] = temp_var
+        # temp["股票代码"] = temp_code
+        temp_data["收益方差"] = temp_var
+        temp_data["股票代码"] = temp_code
+        # print("测试a", date, temp_data)
+        temp["收益方差"] = temp_data
+        returns = returns.append(temp, ignore_index = True)
+    
+    # 找到每个交易日收益波动最小的十只股票
+    top10 = pd.DataFrame(columns = ["日期", "股票代码"])
+    dates = rets[0].index
+    temp_data = []
+    m = len(returns)
+    n = len(returns.iloc[i, :].values[0])
+    t = 0
+    for i in range(len(returns)):
+        retvar = returns.iloc[i, :].values[0]
+        # print(dates[i], retvar, type(retvar))
+        topvar = []
+        topcode = []
+        min_index_list = []
+        min_index = -1
+        for k in range(10):
+            min_var = float("inf")
+            for j in range(len(retvar)):
+                t += 1
+                print("准备数据进程", t/(m*n*10))
+                if j in min_index_list:
+                    continue
+                var_value = retvar.iloc[j, :].收益方差
+                if min_var > var_value:
+                    min_var = var_value
+                    min_index = j
+            topvar.append(min_var)
+            min_index_list.append(min_index)
+            topcode.append(retvar.iloc[min_index, :].股票代码)
+        data = pd.Series(topcode, name = dates[i])
+        temp_data.append(data)
+    top10["日期"] = dates
+    top10["股票代码"] = temp_data
+    top10.set_index("日期", drop = True, inplace = True)
+
+    top10.to_csv(datafile)
         
         
 # 两个日期之间相差的天数
@@ -218,21 +249,41 @@ def gap_days(date1, date2):
 # 重新计算数据
 def init_data(start_date = "20100108", end_date = "20201231", retry = False):
     codes = make_pool()
-    cumret = make_data(codes, start_date, end_date, refresh = retry)
-    codes = cumret.index.values
+    rets = make_data(codes, start_date, end_date, refresh = False)
+    # print("测试", rets.head())
+    # print(rets.index)
+    # print(rets[0].index)
+    # input("按任意键继续")
+    
+    codes = rets.index.values
     if retry == True:
-        results = get_top10(cumret, retry = False)
+        get_top10(rets, retry = False)
+        
+    # test_read_data()
     return codes
+    
+    
+# 测试读取数据
+@run.change_dir
+def test_read_data():
+    print("测试读取数据")
+    datafile = "./datas/retvar.csv"
+    data = pd.read_csv(datafile)
+    data.日期 = pd.to_datetime(data.日期)
+    data.set_index("日期", drop = True, inplace = True)
+    print(data.info(), data.index)
+    print(data.iloc[100, :].values[0])
+    print(type(data.iloc[100, :].values[0]))
 
 
 @run.change_dir
-def pm():
+def lva():
     ts.init_display()
     start_date = "20100108"
     end_date = "20201231"
     codes = init_data(start_date = start_date, end_date = end_date, retry = False)
     backtest = ts.BackTest(
-        strategy = PMStrategy, 
+        strategy = LVAStrategy, 
         codes = codes, 
         bk_code = "000300",
         start_date = start_date, 
@@ -266,5 +317,6 @@ def test_index():
     
 
 if __name__ == "__main__":
-    pm()
+    lva()
     # test_index()
+    # init_data(retry = False)
