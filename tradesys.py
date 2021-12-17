@@ -18,6 +18,7 @@ from scipy import stats
 import empyrical as ey
 import itertools 
 import collections
+import datetime
 
 
 
@@ -57,6 +58,9 @@ def get_data(code, start_date = "20000101", end_date = "20201231", adjust = "qfq
         stock_data = pd.read_csv(stockfile)
         stock_data.日期 = pd.to_datetime(stock_data.日期)
         stock_data.set_index("日期", drop = False, inplace = True)
+        # stock_data = stock_data.loc[start_date:datetime.datetime(end_date) + datetime.timedelta(days = 1), :]
+        end_date = datetime.datetime.strptime(end_date, "%Y%m%d") + datetime.timedelta(days = 1)
+        stock_data = stock_data.loc[start_date:end_date, :]
     else:
         stock_data = download_data(code)
         if os.path.exists(stockfile):
@@ -220,7 +224,9 @@ class BackTest():
         self._before_test()
         self._add_analyzer()
         self._results = self._cerebro.run()
-        return self._get_results()
+        results = self._get_results()
+        results = results[results.index != "股票代码"]
+        return results
         
     # 获取回测结果
     def _get_results(self):
@@ -242,7 +248,10 @@ class BackTest():
         testresults["回测结束日期"] = self._end_date
         testresults["期末净值"] = end_value
         testresults["净收益"] = pnl
-        testresults["收益/成本"] = pnl/testresults["交易成本"]
+        try:
+            testresults["收益成本比"] = pnl/testresults["交易成本"]
+        except ZeroDivisionError:
+            pass
         testresults["股票代码"] = self._codes
         return testresults
         
@@ -267,32 +276,34 @@ class BackTest():
         backtest_results["年化收益率"] = Returns["rnorm"]
         backtest_results["交易成本"] = cost
         backtest_results["SQN"] = sqn
-        backtest_results["交易总次数"] = totalTrade["total"]["total"]
-        backtest_results["盈利交易次数"] = totalTrade["won"]["total"]
-        backtest_results["盈利交易总盈利"] = totalTrade["won"]["pnl"]["total"]
-        backtest_results["盈利交易平均盈利"] = totalTrade["won"]["pnl"]["average"]
-        backtest_results["盈利交易最大盈利"] = totalTrade["won"]["pnl"]["max"]
-        backtest_results["亏损交易次数"] = totalTrade["lost"]["total"]
-        backtest_results["亏损交易总亏损"] = totalTrade["lost"]["pnl"]["total"]
-        backtest_results["亏损交易平均亏损"] = totalTrade["lost"]["pnl"]["average"]
-        backtest_results["亏损交易最大亏损"] = totalTrade["lost"]["pnl"]["max"]
-        
-        # 胜率就是成功率，例如投入十次，七次盈利，三次亏损，胜率就是70%。
-        # 防止被零除 
-        if totalTrade["total"]["total"] == 0: 
-            backtest_results["胜率"] = np.NaN 
-        else:
-            backtest_results["胜率"] = totalTrade["won"]["total"]/totalTrade["total"]["total"]
-        # 赔率是指盈亏比，例如平均每次盈利30%，平均每次亏损10%，盈亏比就是3倍。
-        # 防止被零除
-        if totalTrade["lost"]["pnl"]["average"] == 0:
-            backtest_results["赔率"] = np.NaN
-        else:
-            backtest_results["赔率"] = totalTrade["won"]["pnl"]["average"]/abs(totalTrade["lost"]["pnl"]["average"])
-    
-        # 计算风险指标
-        self._risk_analyze(backtest_results, returns, bk_ret, rf = rf)
-    
+        try:
+            backtest_results["交易总次数"] = totalTrade["total"]["total"]
+            backtest_results["盈利交易次数"] = totalTrade["won"]["total"]
+            backtest_results["盈利交易总盈利"] = totalTrade["won"]["pnl"]["total"]
+            backtest_results["盈利交易平均盈利"] = totalTrade["won"]["pnl"]["average"]
+            backtest_results["盈利交易最大盈利"] = totalTrade["won"]["pnl"]["max"]
+            backtest_results["亏损交易次数"] = totalTrade["lost"]["total"]
+            backtest_results["亏损交易总亏损"] = totalTrade["lost"]["pnl"]["total"]
+            backtest_results["亏损交易平均亏损"] = totalTrade["lost"]["pnl"]["average"]
+            backtest_results["亏损交易最大亏损"] = totalTrade["lost"]["pnl"]["max"]
+            
+            # 胜率就是成功率，例如投入十次，七次盈利，三次亏损，胜率就是70%。
+            # 防止被零除 
+            if totalTrade["total"]["total"] == 0: 
+                backtest_results["胜率"] = np.NaN 
+            else:
+                backtest_results["胜率"] = totalTrade["won"]["total"]/totalTrade["total"]["total"]
+            # 赔率是指盈亏比，例如平均每次盈利30%，平均每次亏损10%，盈亏比就是3倍。
+            # 防止被零除
+            if totalTrade["lost"]["pnl"]["average"] == 0:
+                backtest_results["赔率"] = np.NaN
+            else:
+                backtest_results["赔率"] = totalTrade["won"]["pnl"]["average"]/abs(totalTrade["lost"]["pnl"]["average"])
+            # 计算风险指标
+            self._risk_analyze(backtest_results, returns, bk_ret, rf = rf)
+        except KeyError:
+            pass
+            
         return backtest_results
         
     # 将风险分析和绘图部分提出来

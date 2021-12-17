@@ -51,6 +51,9 @@ def before_run(user, server):
     s = "scp ./* " + user + "@" + server + ":~/code"
     # print("测试3", s)
     os.system(s)
+    # 删除md文件，避免影响博客更新
+    s = "ssh root@" + server +  " -p 2222 \"rm /home/code/README.md\""
+    os.system(s)
     # 更改服务器容器里的当前目录
     s = "ssh root@" + server +  " -p 2222 \"cd /home/code\""
     os.system(s)
