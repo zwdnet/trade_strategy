@@ -27,6 +27,7 @@ import datetime
 def init_display():
     pd.set_option('display.max_rows', None)
     pd.set_option('display.max_columns', None)
+    np.set_printoptions(threshold = sys.maxsize)
     plt.rcParams['font.sans-serif'] = ['SimHei']
     
     
@@ -133,8 +134,22 @@ class Strategy(bt.Strategy):
         for i, d in enumerate(self.datas):
             pos = self.getposition(d).size
             if pos != 0:
-                print("关闭", d._name)
-                self.close(data = d)
+                # print("关闭", d._name)
+                self.close()
+                
+    # 交易数量取整
+    def downcast(self, amount, lot): 
+        return abs(amount//lot*lot)
+        
+    # 判断是否是最后的交易日
+    def is_lastday(self,data): 
+        try: 
+            next_next_close = data.close[2]
+        except IndexError: 
+            return True 
+        except: 
+            print("发生其它错误")
+            return False
             
             
 # 回测类
@@ -366,27 +381,36 @@ class Research():
     """
         A股市场回测类
         strategy   回测策略
+        bk_code    基准股票
         start_date 回测开始日期
         end_date   回测结束日期
         highprice  筛选股票池的最高股价
         lowprice   筛选股票池的最低股价
         min_len    股票数据最小大小(避免新股等)
         start_cash 初始资金大小
+        adjust     数据复权方式
+        period     数据周期
         retest     是否重新回测
         refresh    是否更新数据
+        bprint     是否输出交易过程
         bdraw      是否作图
         **params   策略参数
     """
-    def __init__(self, strategy, start_date, end_date, highprice = sys.float_info.max, lowprice = 0.0, min_len = 1, start_cash = 10000000, retest = False, refresh = False, bdraw = True, **params):
+    def __init__(self, strategy, bk_code, start_date, end_date, highprice = sys.float_info.max, lowprice = 0.0, min_len = 1, start_cash = 10000000, adjust = "hfq", 
+period = "daily", retest = False, refresh = False, bprint = False, bdraw = True, **params):
         self._strategy = strategy
         self._start_date = start_date
         self._end_date = end_date
+        self._bk_code = bk_code
         self._highprice = highprice
         self._lowprice = lowprice
         self._min_len = min_len
         self._start_cash = start_cash
+        self._adjust = adjust
+        self._period = period
         self._retest = retest
         self._refresh = refresh
+        self._print = bprint
         self._bdraw = bdraw
         self._params = params
         
@@ -395,6 +419,8 @@ class Research():
         self._test()
         if self._bdraw:
             self._draw(self._results)
+        # print("测试2")
+        # print(self._results.info())
         return self._results
         
     # 对回测结果画图
@@ -402,15 +428,15 @@ class Research():
         results.set_index("股票代码", inplace = True)
         # 绘图
         plt.figure()
-        results.loc[:, ["SQN", "α值", "β值", "交易总次数", "信息比例", "夏普比率", "年化收益率", "收益/成本", "最大回撤", "索提比例", "胜率", "赔率"]].hist(bins = 100, figsize = (40, 20))
+        results.loc[:, ["SQN", "α值", "β值", "交易总次数", "信息比例", "夏普比率", "年化收益率", "收益成本比", "最大回撤", "索提比例", "胜率", "赔率"]].hist(bins = 100, figsize = (40, 20))
         plt.suptitle("对整个市场回测结果")
         plt.savefig("./output/market_test.jpg")
         
     # 执行回测    
     def _test(self):
-        result_path = "./output/market_test.csv"
+        result_path = "./datas/market_test.csv"
         if os.path.exists(result_path) and self._retest == False:
-            self._results = pd.read_csv(result_path, dtype = {"股票代码":str})
+            self._results = pd.read_csv(result_path)#, dtype = {"股票代码":str})
             return
             
         self._codes = self._make_pool(refresh = self._refresh)
@@ -427,10 +453,13 @@ class Research():
                 refresh = True)
             if len(data) <= self._min_len or (data.收盘 < 0.0).sum() > 0:
                 continue
-            backtest = BackTest(strategy = self._strategy, codes = [code], start_date = self._start_date, end_date = self._end_date, start_cash = self._start_cash, refresh = True, **self._params)
+            backtest = BackTest(strategy = self._strategy, codes = [code], bk_code = self._bk_code, start_date = self._start_date, end_date = self._end_date, start_cash = self._start_cash, adjust = self._adjust, period = self._period, refresh = True, bprint = self._bprint, **self._params)
             res = backtest.run()
+            res["股票代码"] = code
             self._results = self._results.append(res, ignore_index = True)
         self._results.to_csv(result_path)
+        # print("测试1")
+        # print(self._results.info())
         return
         
     # 形成股票池
@@ -464,7 +493,7 @@ class Research():
     
     
 # 对策略进行参数优化
-class OptStrategy():
+class OptStrategy:
     """
         策略优化类
         codes      股票代码列表
@@ -476,13 +505,15 @@ class OptStrategy():
         lowprice   筛选股票池的最低股价
         min_len    股票数据最小大小(避免新股等)
         start_cash 初始资金大小
+        adjust     数据复权方式
+        period     数据周期
         retest     是否重新回测
         refresh    是否更新数据
         bprint     是否输出交易过程
         bdraw      是否作图
         **params   要调优的参数范围
     """
-    def __init__(self, codes, strategy, start_date, end_date, bk_code = "000300", min_len = 1, start_cash = 10000000, retest = False, refresh = False, bprint = False, bdraw = True, **params):
+    def __init__(self, codes, strategy, start_date, end_date, bk_code = "000300", min_len = 1, start_cash = 10000000, adjust = "hfq", period = "daily", retest = False, refresh = False, bprint = False, bdraw = True, **params):
         self._codes = codes
         self._bk_code = bk_code
         self._strategy = strategy
@@ -490,6 +521,8 @@ class OptStrategy():
         self._end_date = end_date
         self._min_len = min_len
         self._start_cash = start_cash
+        self._adjust = adjust
+        self._period = period
         self._retest = retest
         self._refresh = refresh
         self._bprint = bprint
@@ -501,6 +534,7 @@ class OptStrategy():
     def run(self):
         self._results = pd.DataFrame()
         optparams = []
+        optkeys = list(self._params)[-1]
         # 遍历所有参数，初始化回测类，执行回测
         params = self._get_params()
         for param in params:
@@ -511,14 +545,18 @@ class OptStrategy():
                 end_date = self._end_date, 
                 bk_code = self._bk_code,
                 start_cash = self._start_cash,
+                adjust = self._adjust, 
+                period = self._period,
                 refresh = self._refresh, 
                 bprint = self._bprint, 
                 bdraw = self._bdraw,
                 **param[0])
             res = backtest.run()
             self._results = self._results.append(res, ignore_index = True)
-            optparams.append(param[0])
+            optparams.append(param[0][optkeys])
+
         self._results["参数"] = optparams
+        self._results.sort_values(by = "年化收益率", inplace = True, ascending = False)
         self._draw(self._results)
         return self._results        
                     
@@ -547,17 +585,18 @@ class OptStrategy():
         
     # 对回测结果进行排序
     def sort_results(self, results, key, inplace = True, ascending = False):
-        print(results)
+        # print(results)
         results.sort_values(by = key, inplace = inplace, ascending = ascending)
-        print("测试", results)
+        # print("测试", results)
         return results
         
     # 对回测结果画图
     def _draw(self, results):
-        results.set_index("股票代码", inplace = True)
+        # print("测试", results.info())
+        # results.set_index("股票代码", inplace = True)
         # 绘图
         plt.figure()
-        results.loc[:, ["SQN", "α值", "β值", "交易总次数", "信息比例", "夏普比率", "年化收益率", "收益/成本", "最大回撤", "索提比例", "胜率", "赔率"]].hist(bins = 100, figsize = (40, 20))
+        results.loc[:, ["SQN", "α值", "β值", "交易总次数", "信息比例", "夏普比率", "年化收益率", "收益成本比", "最大回撤", "索提比例", "胜率", "赔率"]].hist(bins = 100, figsize = (40, 20))
         plt.suptitle("策略参数优化结果")
         plt.savefig("./output/params_optimize.jpg")
             
