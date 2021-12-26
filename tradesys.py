@@ -410,7 +410,7 @@ period = "daily", retest = False, refresh = False, bprint = False, bdraw = True,
         self._period = period
         self._retest = retest
         self._refresh = refresh
-        self._print = bprint
+        self._bprint = bprint
         self._bdraw = bdraw
         self._params = params
         
@@ -418,6 +418,7 @@ period = "daily", retest = False, refresh = False, bprint = False, bdraw = True,
     def run(self):
         self._test()
         if self._bdraw:
+            # print("测试", self._results.info())
             self._draw(self._results)
         # print("测试2")
         # print(self._results.info())
@@ -457,6 +458,8 @@ period = "daily", retest = False, refresh = False, bprint = False, bdraw = True,
             res = backtest.run()
             res["股票代码"] = code
             self._results = self._results.append(res, ignore_index = True)
+            # self._results.append(res, ignore_index = True)
+            # print("测试2", res)
         self._results.to_csv(result_path)
         # print("测试1")
         # print(self._results.info())
@@ -511,9 +514,10 @@ class OptStrategy:
         refresh    是否更新数据
         bprint     是否输出交易过程
         bdraw      是否作图
+        num_params 调参的参数个数
         **params   要调优的参数范围
     """
-    def __init__(self, codes, strategy, start_date, end_date, bk_code = "000300", min_len = 1, start_cash = 10000000, adjust = "hfq", period = "daily", retest = False, refresh = False, bprint = False, bdraw = True, **params):
+    def __init__(self, codes, strategy, start_date, end_date, bk_code = "000300", min_len = 1, start_cash = 10000000, adjust = "hfq", period = "daily", retest = False, refresh = False, bprint = False, bdraw = True, num_params = 0, **params):
         self._codes = codes
         self._bk_code = bk_code
         self._strategy = strategy
@@ -528,6 +532,7 @@ class OptStrategy:
         self._bprint = bprint
         self._bdraw = bdraw
         self._params = params
+        self._num_params = num_params
 
                 
     # 运行回测
@@ -552,8 +557,17 @@ class OptStrategy:
                 bdraw = self._bdraw,
                 **param[0])
             res = backtest.run()
+            # print("测试参数", list(param[0])[-self._num_params:], param, params)
+            # input("按任意键继续")
             self._results = self._results.append(res, ignore_index = True)
-            optparams.append(param[0][optkeys])
+            #optparams.append(param[0][optkeys])
+            param_keys = list(param[0])[-self._num_params:]
+            param_results = dict()
+            for key in param_keys:
+                param_results[key] = param[0][key]
+            # print(param_results)
+            # input("按任意键继续")
+            optparams.append(param_results)
 
         self._results["参数"] = optparams
         self._results.sort_values(by = "年化收益率", inplace = True, ascending = False)
