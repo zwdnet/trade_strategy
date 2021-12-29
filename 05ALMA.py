@@ -1,5 +1,6 @@
 # 实现经典量化策略
 # 双移动均线 Two Moving Average。
+# 用ALMA版本
 # 参考 ZuraKakushadze,JuanAndrésSerur. 151 Trading Strategies.
 
 
@@ -13,6 +14,41 @@ import numpy as np
 import os
 import datetime
 import backtrader as bt
+
+
+# 定义ALMA，参考https://community.backtrader.com/topic/3262/alma-arnaud-legoux-moving-average
+class ALMA(bt.Indicator):
+    lines = ("alma", )
+    
+    params = dict(
+            period = 40, 
+            sigma = 6,
+            offset = 1,
+    )
+    
+    def __init__(self):
+        self.asize = self.p.period - 1
+        self.m = self.p.offset * self.asize
+        self.s = self.p.period / self.p.sigma
+        self.dss = 2 * self.s * self.s
+        
+    def next(self):
+        try:
+            wtd_sum = 0
+            self.l.alma[0] = 0
+            if len(self) >= self.asize:
+                for i in range(self.p.period):
+                    im = i - self.m
+                    wtd = np.exp( -(im * im) / self.dss)
+                    self.l.alma[0] += self.data[0 - self.p.period + i] * wtd
+                    wtd_sum += wtd
+                self.l.alma[0] = self.l.alma[0] / wtd_sum
+                # print(self.l.alma[0])
+                
+        except TypeError:
+            self.l.alma[0] = 0
+            return
+                
 
 
 # 策略类
@@ -31,8 +67,8 @@ class SMAStrategy(ts.Strategy):
         self.close = self.datas[0].close
         # self.sma1 = bt.indicators.SimpleMovingAverage(self.datas[0], period = self.p.T1)
         # self.sma2 = bt.indicators.SimpleMovingAverage(self.datas[0], period = self.p.T2)
-        self.sma1 = bt.talib.KAMA(self.close, timeperiod = self.p.T1)
-        self.sma2 = bt.talib.KAMA(self.close, timeperiod = self.p.T2)
+        self.sma1 = ALMA(self.close, period = self.p.T1)
+        self.sma2 = ALMA(self.close, period = self.p.T2)
         self.order = None
         self.price = 0.0
         # 测试用
